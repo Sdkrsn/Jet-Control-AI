@@ -1,7 +1,7 @@
 // JetControl AI - main.js
-// 3D Fighter Aircraft Viewer, Parameter Controls, Model Import Placeholder, Mouse Control (Unlimited Rotation)
+// 3D GLTF Aircraft Viewer, Parameter Controls, Model Import Placeholder, Mouse Control (Unlimited Rotation)
 
-let scene, camera, renderer, aircraft, animateId;
+let scene, camera, renderer, aircraft, animateId, gltfAircraft = null;
 let isMouseDown = false;
 let lastMouse = { x: 0, y: 0 };
 let isShiftDown = false;
@@ -41,114 +41,13 @@ function init3D() {
   floor.position.y = -1.2;
   scene.add(floor);
 
-  // Create fighter aircraft
-  aircraft = createFighterAircraft();
-  scene.add(aircraft);
+  // Load GLTF aircraft automatically
+  loadGLTFAircraft('scene.gltf');
 
   setupMouseControls(canvas);
 
   window.addEventListener('resize', onWindowResize);
   animate();
-}
-
-function createFighterAircraft() {
-  const group = new THREE.Group();
-
-  // Fuselage (longer, thinner)
-  const fuselageGeo = new THREE.CylinderGeometry(0.11, 0.16, 4.2, 32);
-  const fuselageMat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7, metalness: 0.6, roughness: 0.25 });
-  const fuselage = new THREE.Mesh(fuselageGeo, fuselageMat);
-  fuselage.rotation.z = Math.PI / 2;
-  group.add(fuselage);
-
-  // Sharper nose cone
-  const noseGeo = new THREE.ConeGeometry(0.11, 0.7, 32);
-  const noseMat = new THREE.MeshStandardMaterial({ color: 0x26334d });
-  const nose = new THREE.Mesh(noseGeo, noseMat);
-  nose.position.x = 2.15;
-  nose.rotation.z = Math.PI / 2;
-  group.add(nose);
-
-  // Sharper tail cone
-  const tailGeo = new THREE.ConeGeometry(0.09, 0.5, 32);
-  const tailMat = new THREE.MeshStandardMaterial({ color: 0x26334d });
-  const tail = new THREE.Mesh(tailGeo, tailMat);
-  tail.position.x = -2.15;
-  tail.rotation.z = -Math.PI / 2;
-  group.add(tail);
-
-  // Main wings (swept back)
-  const wingShape = new THREE.Shape();
-  wingShape.moveTo(0, 0);
-  wingShape.lineTo(1.2, 0.18);
-  wingShape.lineTo(1.7, 0.5);
-  wingShape.lineTo(0.2, 0.1);
-  wingShape.lineTo(0, 0);
-  const extrudeSettings = { depth: 0.12, bevelEnabled: false };
-  const wingGeo = new THREE.ExtrudeGeometry(wingShape, extrudeSettings);
-  const wingMat = new THREE.MeshStandardMaterial({ color: 0xffb74d, metalness: 0.4 });
-  const leftWing = new THREE.Mesh(wingGeo, wingMat);
-  leftWing.position.set(0.2, -0.18, 0.45);
-  leftWing.rotation.y = 0.18;
-  leftWing.rotation.x = Math.PI / 2.1;
-  group.add(leftWing);
-  const rightWing = new THREE.Mesh(wingGeo, wingMat);
-  rightWing.position.set(0.2, -0.18, -0.45);
-  rightWing.rotation.y = -0.18;
-  rightWing.rotation.x = -Math.PI / 2.1;
-  rightWing.scale.y = -1;
-  group.add(rightWing);
-
-  // Tail wings (horizontal stabilizers, swept)
-  const tailWingGeo = new THREE.BoxGeometry(0.7, 0.05, 0.16);
-  const tailWingMat = new THREE.MeshStandardMaterial({ color: 0x90caf9 });
-  const leftTailWing = new THREE.Mesh(tailWingGeo, tailWingMat);
-  leftTailWing.position.set(-1.7, 0.05, 0.22);
-  leftTailWing.rotation.y = 0.32;
-  leftTailWing.rotation.x = Math.PI / 12;
-  group.add(leftTailWing);
-  const rightTailWing = new THREE.Mesh(tailWingGeo, tailWingMat);
-  rightTailWing.position.set(-1.7, 0.05, -0.22);
-  rightTailWing.rotation.y = -0.32;
-  rightTailWing.rotation.x = -Math.PI / 12;
-  group.add(rightTailWing);
-
-  // Twin vertical stabilizers (tail fins, angled)
-  const finGeo = new THREE.BoxGeometry(0.32, 0.18, 0.05);
-  const finMat = new THREE.MeshStandardMaterial({ color: 0x90caf9 });
-  const leftFin = new THREE.Mesh(finGeo, finMat);
-  leftFin.position.set(-2.05, 0.18, 0.13);
-  leftFin.rotation.z = Math.PI / 16;
-  leftFin.rotation.y = Math.PI / 10;
-  group.add(leftFin);
-  const rightFin = new THREE.Mesh(finGeo, finMat);
-  rightFin.position.set(-2.05, 0.18, -0.13);
-  rightFin.rotation.z = Math.PI / 16;
-  rightFin.rotation.y = -Math.PI / 10;
-  group.add(rightFin);
-
-  // Cockpit (bubble canopy)
-  const cockpitGeo = new THREE.SphereGeometry(0.18, 24, 16, 0, Math.PI);
-  const cockpitMat = new THREE.MeshStandardMaterial({ color: 0x1976d2, transparent: true, opacity: 0.7 });
-  const cockpit = new THREE.Mesh(cockpitGeo, cockpitMat);
-  cockpit.position.set(0.85, 0.13, 0);
-  cockpit.rotation.x = Math.PI / 2;
-  group.add(cockpit);
-
-  // Canards (small forward wings)
-  const canardGeo = new THREE.BoxGeometry(0.32, 0.025, 0.08);
-  const canardMat = new THREE.MeshStandardMaterial({ color: 0x90caf9 });
-  const leftCanard = new THREE.Mesh(canardGeo, canardMat);
-  leftCanard.position.set(1.1, 0.07, 0.16);
-  leftCanard.rotation.y = 0.18;
-  group.add(leftCanard);
-  const rightCanard = new THREE.Mesh(canardGeo, canardMat);
-  rightCanard.position.set(1.1, 0.07, -0.16);
-  rightCanard.rotation.y = -0.18;
-  group.add(rightCanard);
-
-  group.position.set(0, 0, 0);
-  return group;
 }
 
 function setupMouseControls(canvas) {
@@ -175,12 +74,10 @@ function setupMouseControls(canvas) {
     // Sensitivity factors
     const factor = 0.3;
     if (isShiftDown) {
-      // Roll with horizontal mouse movement
       params.roll = (params.roll || 0) + dx * factor;
       document.getElementById('roll').value = params.roll;
       document.getElementById('roll-value').textContent = Math.round(params.roll);
     } else {
-      // Pitch and yaw
       params.pitch = (params.pitch || 0) - dy * factor;
       params.yaw = (params.yaw || 0) + dx * factor;
       document.getElementById('pitch').value = params.pitch;
@@ -205,6 +102,43 @@ function onWindowResize() {
 function animate() {
   animateId = requestAnimationFrame(animate);
   renderer.render(scene, camera);
+}
+
+// --- GLTF AUTO LOAD ---
+function loadGLTFAircraft(path) {
+  const loader = new THREE.GLTFLoader();
+  loader.load(
+    path,
+    function (gltf) {
+      if (gltfAircraft) {
+        scene.remove(gltfAircraft);
+      }
+      gltfAircraft = gltf.scene;
+      centerAndScaleModel(gltfAircraft);
+      gltfAircraft.position.set(0, 0, 0);
+      scene.add(gltfAircraft);
+      updateAircraft3D();
+    },
+    undefined,
+    function (error) {
+      alert('Failed to load scene.gltf. Check the file and path.');
+      console.error('Error loading GLTF:', error);
+    }
+  );
+}
+
+// Center and scale the imported model to fit the scene
+function centerAndScaleModel(model) {
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const scale = 3.5 / maxDim;
+  model.scale.set(scale, scale, scale);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  model.position.sub(center);
+  model.position.y += size.y * scale / 2;
 }
 
 // --- PARAMETER CONTROLS ---
@@ -243,20 +177,12 @@ function setupParamControls() {
 
 // --- 3D AIRCRAFT PARAMETER UPDATES ---
 function updateAircraft3D() {
-  if (!aircraft) return;
-  // Pitch (x), Roll (z), Yaw (y)
-  aircraft.rotation.x = THREE.MathUtils.degToRad(params.pitch || 0);
-  aircraft.rotation.y = THREE.MathUtils.degToRad(params.yaw || 0);
-  aircraft.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);
-  // Optionally, change color if engine temp is high
-  if (aircraft.children && aircraft.children[0] && aircraft.children[0].material) {
-    if (params.engineTemp > 1000) {
-      aircraft.children[0].material.color.set(0xff5252); // red for overheat
-    } else {
-      aircraft.children[0].material.color.set(0x4fc3f7);
-    }
-  }
-  camera.lookAt(aircraft.position);
+  let model = gltfAircraft;
+  if (!model) return;
+  model.rotation.x = THREE.MathUtils.degToRad(params.pitch || 0);
+  model.rotation.y = THREE.MathUtils.degToRad(params.yaw || 0);
+  model.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);
+  camera.lookAt(model.position);
 }
 
 // --- MODEL IMPORT PLACEHOLDER ---
