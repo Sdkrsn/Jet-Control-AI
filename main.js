@@ -5,6 +5,8 @@ let scene, camera, renderer, aircraft, animateId, gltfAircraft = null;
 let isMouseDown = false;
 let lastMouse = { x: 0, y: 0 };
 let isShiftDown = false;
+let loadedModel = null;
+let loadedWeights = null;
 
 function init3D() {
   const canvas = document.getElementById('aircraft-canvas');
@@ -42,7 +44,7 @@ function init3D() {
   scene.add(floor);
 
   // Load GLTF aircraft automatically
-  loadGLTFAircraft('scene.gltf');
+  loadGLTFAircraft('scene.glb');
 
   setupMouseControls(canvas);
 
@@ -71,7 +73,6 @@ function setupMouseControls(canvas) {
     const dy = e.clientY - lastMouse.y;
     lastMouse.x = e.clientX;
     lastMouse.y = e.clientY;
-    // Sensitivity factors
     const factor = 0.3;
     if (isShiftDown) {
       params.roll = (params.roll || 0) + dx * factor;
@@ -110,16 +111,23 @@ function loadGLTFAircraft(path) {
   loader.load(
     path,
     function (gltf) {
-      if (gltfAircraft) {
-        scene.remove(gltfAircraft);
-      }
+      if (gltfAircraft) scene.remove(gltfAircraft);
       gltfAircraft = gltf.scene;
+      console.log('GLTF loaded:', gltf);
       centerAndScaleModel(gltfAircraft);
       gltfAircraft.position.set(0, 0, 0);
       scene.add(gltfAircraft);
+      const bbox = new THREE.Box3().setFromObject(gltfAircraft);
+      const helper = new THREE.Box3Helper(bbox, 0x00ff00);
+      scene.add(helper);
       updateAircraft3D();
     },
-    undefined,
+    function (xhr) {
+      if (xhr.lengthComputable) {
+        const percent = (xhr.loaded / xhr.total * 100).toFixed(1);
+        console.log(`GLTF loading: ${percent}%`);
+      }
+    },
     function (error) {
       alert('Failed to load scene.gltf. Check the file and path.');
       console.error('Error loading GLTF:', error);
@@ -127,7 +135,6 @@ function loadGLTFAircraft(path) {
   );
 }
 
-// Center and scale the imported model to fit the scene
 function centerAndScaleModel(model) {
   const box = new THREE.Box3().setFromObject(model);
   const size = new THREE.Vector3();
@@ -175,7 +182,6 @@ function setupParamControls() {
   });
 }
 
-// --- 3D AIRCRAFT PARAMETER UPDATES ---
 function updateAircraft3D() {
   let model = gltfAircraft;
   if (!model) return;
@@ -185,20 +191,50 @@ function updateAircraft3D() {
   camera.lookAt(model.position);
 }
 
-// --- MODEL IMPORT PLACEHOLDER ---
-let loadedModel = null;
-function setupModelImport() {
-  const modelInput = document.getElementById('model-upload');
-  modelInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    loadedModel = file;
-    document.getElementById('prediction-output').textContent = `Model loaded: ${file.name}. Adjust parameters and import your model to see predictions.`;
-    updatePrediction();
-  });
+// --- MODEL + WEIGHTS IMPORT HANDLER ---
+document.getElementById('model-upload').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      loadedModel = event.target.result;
+      console.log('Model file loaded.');
+      tryToInitModel();
+    };
+    reader.readAsArrayBuffer(file);
+  }
+});
+
+document.getElementById('weights-upload').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      loadedWeights = event.target.result;
+      console.log('Weights file loaded.');
+      tryToInitModel();
+    };
+    reader.readAsArrayBuffer(file);
+  }
+});
+
+function tryToInitModel() {
+  if (loadedModel && loadedWeights) {
+    console.log('Both model and weights are loaded. Initializing...');
+    document.getElementById('prediction-output').textContent =
+      'Custom model and weights loaded. Ready to generate predictions.';
+  }
 }
 
-// --- PREDICTION OUTPUT PLACEHOLDER ---
+// --- SAMPLE MODEL DROPDOWN ---
+document.getElementById('model-select')?.addEventListener('change', function () {
+  const selectedModel = this.value;
+  if (selectedModel) {
+    loadGLTFAircraft(selectedModel);
+  }
+});
+
+// --- PREDICTION OUTPUT ---
 function updatePrediction() {
   const output = document.getElementById('prediction-output');
   if (!loadedModel) {
@@ -222,7 +258,6 @@ function updatePrediction() {
 window.addEventListener('DOMContentLoaded', () => {
   init3D();
   setupParamControls();
-  setupModelImport();
   updateAircraft3D();
   updatePrediction();
 });
