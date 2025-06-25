@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JetControl AI - Aircraft Simulator</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Roboto', sans-serif;
+      background: #181f2a;
+      color: #f5f6fa;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .container {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+    .sidebar {
+      width: 340px;
+      min-width: 300px;
+      background: #232b3e;
+      padding: 32px 24px 24px 24px;
+      box-shadow: 2px 0 12px rgba(0,0,0,0.12);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      z-index: 2;
+    }
+    .sidebar h2 {
+      margin-top: 0;
+      font-size: 2rem;
+      font-weight: 700;
+      color: #4fc3f7;
+      letter-spacing: 1px;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    .params {
+      margin-bottom: 32px;
+    }
+    .param-group {
+      margin-bottom: 22px;
+      display: flex;
+      flex-direction: column;
+    }
+    .param-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 1rem;
+      margin-bottom: 6px;
+      color: #b0bec5;
+      font-weight: 500;
+    }
+    .param-slider {
+      width: 100%;
+      accent-color: #4fc3f7;
+      height: 4px;
+      border-radius: 4px;
+      background: #1a2233;
+      margin: 0;
+    }
+    .param-value {
+      min-width: 48px;
+      text-align: right;
+      color: #ffb74d;
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+    .import-section {
+      margin-bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .import-section label {
+      font-size: 1rem;
+      color: #b0bec5;
+      margin-bottom: 6px;
+    }
+    .import-section input[type="file"] {
+      color: #f5f6fa;
+      background: #1a2233;
+      border: 1px solid #4fc3f7;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 0.98rem;
+      margin-top: 2px;
+      width: 100%;
+    }
+    .prediction-section {
+      background: #1a2233;
+      border-radius: 10px;
+      padding: 18px 16px;
+      margin-top: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      min-height: 90px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    .prediction-section h3 {
+      margin: 0 0 8px 0;
+      color: #ffb74d;
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+    #prediction-output {
+      color: #f5f6fa;
+      font-size: 1.01rem;
+      margin-top: 4px;
+      min-height: 32px;
+    }
+    .main-view {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #232b3e 60%, #26334d 100%);
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+    }
+    #aircraft-canvas {
+      width: 92%;
+      max-width: 1200px;
+      height: 80vh;
+      min-height: 400px;
+      background: #101624;
+      border-radius: 18px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+      display: block;
+      margin: 0 auto;
+      border: 2px solid #4fc3f7;
+    }
+    @media (max-width: 1100px) {
+      .sidebar {
+        width: 100vw;
+        min-width: 0;
+        box-shadow: none;
+        padding: 18px 10px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        align-items: flex-start;
+      }
+      .main-view {
+        padding: 0 0 24px 0;
+      }
+      #aircraft-canvas {
+        width: 98vw;
+        height: 50vh;
+      }
+    }
+    @media (max-width: 700px) {
+      .container {
+        flex-direction: column;
+      }
+      .sidebar {
+        width: 100vw;
+        min-width: 0;
+        box-shadow: none;
+        padding: 12px 4vw;
+        flex-direction: column;
+        align-items: stretch;
+      }
+      #aircraft-canvas {
+        width: 98vw;
+        height: 38vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <aside class="sidebar">
+      <div>
+        <h2>JetControl AI</h2>
+        <div class="params">
+          <div class="param-group">
+            <div class="param-label"><span>Fuel</span><span class="param-value" id="fuel-value">50</span></div>
+            <input type="range" min="0" max="100" value="50" class="param-slider" id="fuel">
+          </div>
+          <div class="param-group">
+            <div class="param-label"><span>Throttle</span><span class="param-value" id="throttle-value">50</span></div>
+            <input type="range" min="0" max="100" value="50" class="param-slider" id="throttle">
+          </div>
+          <div class="param-group">
+            <div class="param-label"><span>Weight (kg)</span><span class="param-value" id="weight-value">10000</span></div>
+            <input type="range" min="5000" max="20000" value="10000" class="param-slider" id="weight">
+          </div>
+          <div class="param-group">
+            <div class="param-label"><span>Altitude (m)</span><span class="param-value" id="altitude-value">5000</span></div>
+            <input type="range" min="0" max="12000" value="5000" class="param-slider" id="altitude">
+          </div>
+          <div class="param-group">
+            <div class="param-label"><span>Speed (km/h)</span><span class="param-value" id="speed-value">600</span></div>
+            <input type="range" min="0" max="2000" value="600" class="param-slider" id="speed">
+          </div>
+          <div class="param-group">
+            <div class="param-label"><span>Pitch (°)</span><span class="param-value" id="pitch-value">0</span></div>
+            <input type="range" min="-30" max="30" value="0" class="param-slider" id="pitch">
+          </div>
+          <div class="param-group">
+            <div class="param-label"><span>Roll (°)</span><span class="param-value" id="roll-value">0</span></div>
+            <input type="range" min="-45" max="45" value="0" class="param-slider" id="roll">
+          </div>
+          <div class="param-group">
+            <div class="param-label"><span>Yaw (°)</span><span class="param-value" id="yaw-value">0</span></div>
+            <input type="range" min="-30" max="30" value="0" class="param-slider" id="yaw">
+          </div>
+          <div class="param-group">
+            <div class="param-label"><span>Engine Temp (°C)</span><span class="param-value" id="engineTemp-value">400</span></div>
+            <input type="range" min="200" max="1200" value="400" class="param-slider" id="engineTemp">
+          </div>
+          <div class="param-group">
+            <div class="param-label"><span>Flap Angle (°)</span><span class="param-value" id="flapAngle-value">0</span></div>
+            <input type="range" min="-10" max="40" value="0" class="param-slider" id="flapAngle">
+          </div>
+        </div>
+        <div class="import-section">
+          <label for="model-upload">Import Model:</label>
+          <input type="file" id="model-upload" accept=".json,.js,.onnx,.h5,.pkl">
+        </div>
+      </div>
+      <div class="prediction-section">
+        <h3>Prediction & Crash Analysis</h3>
+        <div id="prediction-output">Model not loaded. Adjust parameters and import your model to see predictions.</div>
+      </div>
+    </aside>
+    <main class="main-view">
+      <canvas id="aircraft-canvas"></canvas>
+    </main>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.153.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
