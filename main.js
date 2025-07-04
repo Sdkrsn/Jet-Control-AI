@@ -150,9 +150,9 @@ function animate() {
     
     if (aircraft) {
         // Corrected control mapping
-        aircraft.rotation.x = THREE.MathUtils.degToRad(params.pitch || 0); // Pitch (nose up/down)
+        aircraft.rotation.x = THREE.MathUtils.degToRad(-(params.pitch || 0)); // Pitch (nose up/down)
         aircraft.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);  // Roll (banking)
-        aircraft.rotation.y = THREE.MathUtils.degToRad(params.yaw || 0);   // Yaw (turning)
+        aircraft.rotation.y = THREE.MathUtils.degToRad(-(params.yaw || 0));   // Yaw (turning)
         
         // Gentle floating animation
         aircraft.position.y = Math.sin(Date.now() * 0.001) * 0.5;
