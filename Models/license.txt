@@ -1,0 +1,11 @@
+Model Information:
+* title:	Indian MiG-21 Bison
+* source:	https://sketchfab.com/3d-models/indian-mig-21-bison-dfa91ea83d484fd2b8d52034b582cc00
+* author:	42manako (https://sketchfab.com/42manako)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Indian MiG-21 Bison" (https://sketchfab.com/3d-models/indian-mig-21-bison-dfa91ea83d484fd2b8d52034b582cc00) by 42manako (https://sketchfab.com/42manako) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
