@@ -1,4 +1,4 @@
-// JetControl AI - Complete Solution
+// JetControl AI - Complete Solution with Robust ONNX Handling
 let scene, camera, renderer, aircraft;
 let canvas = document.getElementById('aircraft-canvas');
 let isDragging = false;
@@ -151,7 +151,7 @@ function animate() {
     if (aircraft) {
         // Corrected control mapping
         aircraft.rotation.x = THREE.MathUtils.degToRad(-(params.pitch || 0)); // Pitch (nose up/down)
-        aircraft.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);  // Roll (banking)
+        aircraft.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);     // Roll (banking)
         aircraft.rotation.y = THREE.MathUtils.degToRad(-(params.yaw || 0));   // Yaw (turning)
         
         // Gentle floating animation
@@ -203,47 +203,141 @@ function setupParamControls() {
 // ONNX MODEL LOADING AND PREDICTION
 let onnxSession = null;
 let onnxModelLoaded = false;
+let usingFallbackModel = false;
 
 async function loadONNXModel() {
+    const output = document.getElementById('prediction-output');
+    output.innerHTML = 'Loading flight behavior model...<br>';
+
     try {
-        console.log('Loading ONNX model...');
-        onnxSession = new onnx.InferenceSession();
-        await onnxSession.loadModel('Models/flight_behavior_model.onnx');
+        // Try both possible model locations
+        const modelPaths = [
+            './flight_behavior_modell.onnx',      // Root directory
+            './Models/flight_behavior_modell.onnx' // Models folder
+        ];
+
+        let modelData = null;
+        let modelFound = false;
+
+        for (const path of modelPaths) {
+            try {
+                output.innerHTML += `Checking: ${path}<br>`;
+                const response = await fetch(path);
+                if (!response.ok) continue;
+                
+                modelData = await response.arrayBuffer();
+                output.innerHTML += `Found model at ${path}<br>`;
+                modelFound = true;
+                break;
+            } catch (e) {
+                console.log(`Not found at ${path}`, e);
+            }
+        }
+
+        if (!modelFound) {
+            throw new Error('Model not found in root directory or Models folder');
+        }
+
+        // Validate ONNX model header
+        if (!isValidONNXModel(modelData)) {
+            throw new Error('Invalid ONNX file format (corrupted or wrong version)');
+        }
+
+        // Initialize ONNX session with WebGL backend
+        onnxSession = new onnx.InferenceSession({ backendHint: 'webgl' });
+        await onnxSession.loadModel(modelData);
+
+        // Verify model structure
+        if (!onnxSession.inputNames.includes('float_input')) {
+            throw new Error('Model input mismatch - expected "float_input"');
+        }
+
         onnxModelLoaded = true;
-        console.log('ONNX model loaded successfully.');
-        updatePrediction();
-    } catch (err) {
-        console.error('Failed to load ONNX model:', err);
-        document.getElementById('prediction-output').textContent = 'Failed to load ONNX model: ' + err;
+        output.innerHTML += 'ONNX model loaded successfully!<br>';
+        console.log('Model input dimensions:', onnxSession.inputDimensions);
+
+    } catch (error) {
+        console.error('ONNX Loading Error:', error);
+        onnxModelLoaded = false;
+        usingFallbackModel = true;
+        
+        output.innerHTML = `
+            <span style="color:#ff5555">⚠️ Couldn't load AI model:</span><br>
+            ${error.message}<br><br>
+            <strong>Using analytical fallback mode</strong><br>
+            <small>(Predictions will be simulated)</small>
+        `;
     }
+}
+
+function isValidONNXModel(data) {
+    // Check for ONNX file magic number
+    if (!data || data.byteLength < 8) return false;
+    const header = new Uint8Array(data, 0, 8);
+    return header[0] === 0x4F && header[1] === 0x4E && 
+           header[2] === 0x4E && header[3] === 0x58; // "ONNX"
+}
+
+// Fallback analytical prediction model
+function analyticalPrediction(params) {
+    // Simple physics-based approximation
+    const stability = 
+        0.3 * (params.throttle / 100) +
+        0.2 * (1 - Math.abs(params.pitch) / 30) +
+        0.2 * (1 - Math.abs(params.roll) / 45) +
+        0.1 * (params.speed / 2000) +
+        0.1 * (1 - (params.engineTemp - 200) / 1000) +
+        0.1 * (params.altitude / 12000);
+    
+    return Math.min(1, Math.max(0, stability)); // Clamp to 0-1 range
 }
 
 async function updatePrediction() {
     const output = document.getElementById('prediction-output');
-    if (!onnxModelLoaded) {
-        output.textContent = 'Model loading...';
-        return;
-    }
-    const input = new Float32Array([
-        params.fuel,
-        params.throttle,
-        params.weight,
-        params.altitude,
-        params.speed,
-        params.pitch,
-        params.roll,
-        params.yaw,
-        params.engineTemp,
-        params.flapAngle
-    ]);
-    const tensor = new onnx.Tensor(input, 'float32', [1, 10]);
+    
     try {
-        const result = await onnxSession.run({ float_input: tensor });
-        const prediction = Object.values(result)[0].data[0];
-        output.textContent = 'Prediction: ' + prediction;
-    } catch (err) {
-        output.textContent = 'Prediction error: ' + err;
-        console.error('Prediction error:', err);
+        let prediction;
+        if (onnxModelLoaded) {
+            // Use ONNX model if available
+            const input = new Float32Array([
+                params.fuel / 100,
+                params.throttle / 100,
+                (params.weight - 5000) / 15000,
+                params.altitude / 12000,
+                params.speed / 2000,
+                params.pitch / 30,
+                params.roll / 45,
+                params.yaw / 30,
+                (params.engineTemp - 200) / 1000,
+                (params.flapAngle + 10) / 50
+            ]);
+            
+            const tensor = new onnx.Tensor(input, 'float32', [1, 10]);
+            const result = await onnxSession.run({ float_input: tensor });
+            prediction = result[onnxSession.outputNames[0]].data[0];
+        } else {
+            // Fallback to analytical model
+            prediction = analyticalPrediction(params);
+        }
+
+        // Format prediction output
+        const status = prediction > 0.7 ? '✅ Stable' : 
+                      prediction > 0.4 ? '⚠️ Caution' : '❌ Critical';
+        
+        output.innerHTML = `
+            <strong>Flight Stability:</strong> ${(prediction * 100).toFixed(1)}%<br>
+            <progress value="${prediction}" max="1"></progress><br>
+            ${status}<br>
+            ${usingFallbackModel ? '<small>Using analytical model</small>' : ''}
+        `;
+
+    } catch (error) {
+        console.error('Prediction Error:', error);
+        output.innerHTML = `
+            <span style="color:#ff5555">Prediction Error:</span><br>
+            ${error.message}<br>
+            <small>Check console for details</small>
+        `;
     }
 }
 
@@ -251,6 +345,6 @@ async function updatePrediction() {
 window.addEventListener('DOMContentLoaded', () => {
     initThreeJS();
     setupParamControls();
-    document.getElementById('prediction-output').textContent = 'Prediction will appear here.';
+    document.getElementById('prediction-output').textContent = 'Initializing system...';
     loadONNXModel();
 });
