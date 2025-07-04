@@ -1,7 +1,10 @@
-// JetControl AI - main.js (non-module version)
-// THREE.JS SCENE SETUP
+// JetControl AI - Complete Solution
 let scene, camera, renderer, aircraft;
 let canvas = document.getElementById('aircraft-canvas');
+let isDragging = false;
+let previousMousePosition = { x: 0, y: 0 };
+let cameraDistance = 15;
+let cameraAngle = { x: 0, y: 0 };
 
 function initThreeJS() {
     // Scene
@@ -11,8 +14,7 @@ function initThreeJS() {
 
     // Camera
     camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
-    camera.position.set(0, 5, 15);
-    camera.lookAt(0, 0, 0);
+    updateCameraPosition();
 
     // Renderer
     renderer = new THREE.WebGLRenderer({
@@ -39,11 +41,59 @@ function initThreeJS() {
     gridHelper.position.y = -0.5;
     scene.add(gridHelper);
 
+    // Mouse events for camera control
+    canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('mouseup', onMouseUp);
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('wheel', onMouseWheel);
+
     // Load aircraft model
     loadAircraftModel();
 
     // Handle window resize
     window.addEventListener('resize', onWindowResize);
+}
+
+function updateCameraPosition() {
+    camera.position.x = cameraDistance * Math.sin(cameraAngle.x) * Math.cos(cameraAngle.y);
+    camera.position.y = cameraDistance * Math.sin(cameraAngle.y);
+    camera.position.z = cameraDistance * Math.cos(cameraAngle.x) * Math.cos(cameraAngle.y);
+    camera.lookAt(0, 0, 0);
+}
+
+function onMouseDown(event) {
+    isDragging = true;
+    previousMousePosition = {
+        x: event.clientX,
+        y: event.clientY
+    };
+}
+
+function onMouseUp() {
+    isDragging = false;
+}
+
+function onMouseMove(event) {
+    if (!isDragging) return;
+    
+    const deltaX = event.clientX - previousMousePosition.x;
+    const deltaY = event.clientY - previousMousePosition.y;
+    
+    cameraAngle.x += deltaX * 0.01;
+    cameraAngle.y -= deltaY * 0.01;
+    cameraAngle.y = Math.max(-Math.PI/2, Math.min(Math.PI/2, cameraAngle.y));
+    
+    updateCameraPosition();
+    previousMousePosition = {
+        x: event.clientX,
+        y: event.clientY
+    };
+}
+
+function onMouseWheel(event) {
+    cameraDistance += event.deltaY * 0.01;
+    cameraDistance = Math.max(5, Math.min(50, cameraDistance));
+    updateCameraPosition();
 }
 
 function loadAircraftModel() {
@@ -58,8 +108,8 @@ function loadAircraftModel() {
             console.log('Model loaded successfully');
             aircraft = gltf.scene;
             
-            // Adjust model scale and position
-            aircraft.scale.set(0.5, 0.5, 0.5);
+            // Larger aircraft model
+            aircraft.scale.set(1.5, 1.5, 1.5);
             aircraft.position.y = 0;
             
             // Center the model
@@ -99,12 +149,13 @@ function animate() {
     requestAnimationFrame(animate);
     
     if (aircraft) {
-        aircraft.rotation.x = THREE.MathUtils.degToRad(params.roll || 0);
-        aircraft.rotation.y = THREE.MathUtils.degToRad(params.yaw || 0);
-        aircraft.rotation.z = THREE.MathUtils.degToRad(-(params.pitch || 0));
+        // Corrected control mapping
+        aircraft.rotation.x = THREE.MathUtils.degToRad(params.pitch || 0); // Pitch (nose up/down)
+        aircraft.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);  // Roll (banking)
+        aircraft.rotation.y = THREE.MathUtils.degToRad(params.yaw || 0);   // Yaw (turning)
         
         // Gentle floating animation
-        aircraft.position.y = Math.sin(Date.now() * 0.001) * 0.2;
+        aircraft.position.y = Math.sin(Date.now() * 0.001) * 0.5;
     }
     
     renderer.render(scene, camera);
