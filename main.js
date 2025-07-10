@@ -2,30 +2,40 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import * as ort from 'onnxruntime-web'; // This is the standard way to import with a bundler
+import * as ort from 'onnxruntime-web';
 
-// JetControl AI - Complete Solution with Robust ONNX Handling
+// ONNX Runtime WASM Path Configuration (kept for reference, but ONNX loading is skipped as requested)
+ort.env.wasm.wasmPaths = {
+  'ort-wasm.wasm': '/ort-wasm/ort-wasm.wasm',
+  'ort-wasm-simd.wasm': '/ort-wasm/ort-wasm-simd-threaded.wasm', // This path might need adjustment if you enable ONNX later
+  'ort-wasm-threaded.wasm': '/ort-wasm/ort-wasm-threaded.wasm',
+  'ort-wasm-simd-threaded.jsep.wasm': '/ort-wasm/ort-wasm-simd-threaded.jsep.wasm',
+};
+console.log('ONNX Runtime WASM paths configured.');
+
 let scene, camera, renderer, aircraft;
 let canvas = document.getElementById('aircraft-canvas');
 let isDragging = false;
 let previousMousePosition = { x: 0, y: 0 };
 let cameraDistance = 15;
-let cameraAngle = { x: 0, y: 0 };
+let cameraAngle = { x: 0, y: 0 }; // Initialized here, will be set in initThreeJS
 
-// ONNX Runtime instance (will be assigned the module)
-// ort is already imported above globally.
+// Global flags for ONNX loading state - Set to force analytical mode from start
+let onnxSession = null;
+let onnxModelLoaded = false; // Always false to force analytical
+let usingFallbackModel = true; // Always true to indicate analytical is being used
 
 function initThreeJS() {
-    // Scene
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x10141a);
     scene.fog = new THREE.FogExp2(0x10141a, 0.001);
 
-    // Camera
     camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+    // --- START MODIFIED ---
+    cameraAngle.y = THREE.MathUtils.degToRad(15); // Start looking down at 15 degrees
+    // --- END MODIFIED ---
     updateCameraPosition();
 
-    // Renderer
     renderer = new THREE.WebGLRenderer({
         canvas: canvas,
         antialias: true,
@@ -34,7 +44,6 @@ function initThreeJS() {
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-    // Enhanced lighting
     const ambientLight = new THREE.AmbientLight(0x404040, 5);
     scene.add(ambientLight);
 
@@ -45,21 +54,17 @@ function initThreeJS() {
     const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);
     scene.add(hemisphereLight);
 
-    // Grid helper
     const gridHelper = new THREE.GridHelper(20, 20, 0x00e676, 0x00e676);
-    gridHelper.position.y = -0.5;
+    gridHelper.position.y = 0; // Grid is at y=0
     scene.add(gridHelper);
 
-    // Mouse events for camera control
     canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('mouseup', onMouseUp);
     canvas.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('wheel', onMouseWheel);
 
-    // Load aircraft model
     loadAircraftModel();
 
-    // Handle window resize
     window.addEventListener('resize', onWindowResize);
 }
 
@@ -89,8 +94,11 @@ function onMouseMove(event) {
     const deltaY = event.clientY - previousMousePosition.y;
 
     cameraAngle.x += deltaX * 0.01;
+    // --- START MODIFIED ---
+    // Allow camera to look down a bit more, but not fully inverted
     cameraAngle.y -= deltaY * 0.01;
-    cameraAngle.y = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraAngle.y));
+    cameraAngle.y = Math.max(-Math.PI * 0.45, Math.min(Math.PI * 0.45, cameraAngle.y)); // Approx -81 to +81 degrees
+    // --- END MODIFIED ---
 
     updateCameraPosition();
     previousMousePosition = {
@@ -106,8 +114,8 @@ function onMouseWheel(event) {
 }
 
 function loadAircraftModel() {
-    const loader = new GLTFLoader(); // Use imported GLTFLoader
-    const dracoLoader = new DRACOLoader(); // Use imported DRACOLoader
+    const loader = new GLTFLoader();
+    const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
     loader.setDRACOLoader(dracoLoader);
 
@@ -117,18 +125,35 @@ function loadAircraftModel() {
             console.log('Model loaded successfully');
             aircraft = gltf.scene;
 
-            // Larger aircraft model
-            aircraft.scale.set(1.5, 1.5, 1.5);
-            aircraft.position.y = 0;
+            aircraft.scale.set(1.5, 1.5, 1.5); // Apply scaling first
 
-            // Center the model
+            // Calculate the bounding box of the entire aircraft model *after* scaling
             const box = new THREE.Box3().setFromObject(aircraft);
+
+            // Get the current lowest Y-coordinate of the model's bounding box
+            const currentMinY = box.min.y;
+
+            // Define the desired vertical offset from the grid (e.g., 0.1 units above y=0)
+            const desiredClearance = 0.1; // This ensures it's visibly above the grid. Adjust as needed.
+
+            // Calculate the amount needed to shift the model upwards.
+            // If currentMinY is negative, we add its absolute value to bring it to y=0,
+            // then add the desiredClearance.
+            const verticalShift = (0 - currentMinY) + desiredClearance;
+
+            // Apply the calculated vertical shift to the model's Y position
+            aircraft.position.y += verticalShift;
+
+            // OPTIONAL: Keep the model centered horizontally (X and Z axes)
+            // You can comment these two lines out if you find the model ends up
+            // off-center horizontally after the vertical adjustment based on your specific model.
             const center = box.getCenter(new THREE.Vector3());
-            aircraft.position.sub(center);
+            aircraft.position.x -= center.x;
+            aircraft.position.z -= center.z;
+
 
             scene.add(aircraft);
 
-            // Start animation
             animate();
         },
         function(xhr) {
@@ -150,6 +175,13 @@ function loadFallbackModel() {
         shininess: 30
     });
     aircraft = new THREE.Mesh(geometry, material);
+
+    // For the fallback box, calculate its actual lowest point too for consistency
+    const boxFallback = new THREE.Box3().setFromObject(aircraft);
+    const currentMinYFallback = boxFallback.min.y;
+    const desiredClearanceFallback = 0.1; // Same desired clearance for consistency
+    aircraft.position.y += (0 - currentMinYFallback) + desiredClearanceFallback;
+
     scene.add(aircraft);
     animate();
 }
@@ -158,13 +190,16 @@ function animate() {
     requestAnimationFrame(animate);
 
     if (aircraft) {
-        // Corrected control mapping
-        aircraft.rotation.x = THREE.MathUtils.degToRad(-(params.pitch || 0)); // Pitch (nose up/down)
-        aircraft.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);      // Roll (banking)
-        aircraft.rotation.y = THREE.MathUtils.degToRad(-(params.yaw || 0));    // Yaw (turning)
+        // Pitch (nose up/down): Positive pitch (slider) -> nose up (visual) -> negative X rotation
+        aircraft.rotation.x = THREE.MathUtils.degToRad(-(params.pitch || 0));
+        // Roll (banking): Positive roll (slider) -> right bank (visual) -> positive Z rotation
+        aircraft.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);
+        // Yaw (turning): Positive yaw (slider) -> nose right (visual) -> negative Y rotation
+        // This is crucial for matching the analytical model's turn logic.
+        aircraft.rotation.y = THREE.MathUtils.degToRad(-(params.yaw || 0));
 
-        // Gentle floating animation
-        aircraft.position.y = Math.sin(Date.now() * 0.001) * 0.5;
+        // Gentle floating animation (maintains the aircraft slightly above/on the grid center)
+        // aircraft.position.y = Math.sin(Date.now() * 0.001) * 0.5; // This line remains commented out to prevent floating.
     }
 
     renderer.render(scene, camera);
@@ -209,177 +244,266 @@ function setupParamControls() {
     });
 }
 
-// ONNX MODEL LOADING AND PREDICTION
-let onnxSession = null;
-let onnxModelLoaded = false;
-let usingFallbackModel = false;
-
-async function loadONNXRuntimeModule() {
-    console.log('Attempting to load ONNX Runtime module...');
-    try {
-        // With a bundler, the 'import * as ort from "onnxruntime-web";' handles finding the module.
-        // You don't usually need to set wasmPath explicitly IF the bundler is configured correctly
-        // to copy assets and resolve paths. However, for direct browser use (which Vite effectively enables),
-        // it's still good practice to set wasmPath relative to your *served* files.
-        // Vite copies WASM files to the root build directory by default, so we set wasmPath to '/'.
-        // If you had them in a subfolder like /assets/wasm/, you'd set it to '/assets/wasm/'.
-
-        // For development with Vite, the base path is usually the root of your development server.
-        ort.env.wasm.wasmPath = '/'; // Assuming Vite puts WASM files at the root of its dev server.
-
-        console.log(`ONNX Runtime Wasm path set to: ${ort.env.wasm.wasmPath}`);
-
-        // Handle multi-threading gracefully if cross-origin isolation is not met
-        if (ort.env.wasm.numThreads > 1 && !self.crossOriginIsolated) {
-             console.warn("Cross-Origin Isolation is required for WebAssembly multi-threading. See https://web.dev/cross-origin-isolation-guide/ for more info. Falling back to single thread.");
-             ort.env.wasm.numThreads = 1; // Explicitly set to 1
-        } else if (!self.crossOriginIsolated) {
-            console.info("Cross-Origin Isolation is not enabled, multi-threading for WebAssembly will not work. `numThreads` is already 1 or less.");
-        }
-
-        // No need to return ort from this function as it's already imported globally.
-        // This function primarily sets up environment variables.
-        console.log('ONNX Runtime module configuration complete.');
-
-    } catch (e) {
-        console.error('Error configuring ONNX Runtime module:', e);
-        throw new Error('Failed to configure ONNX Runtime module. Check console for details.');
-    }
+// ONNX MODEL LOADING AND PREDICTION - This function is now effectively a placeholder
+async function loadONNXModel() {
+    // As per user request, we are skipping ONNX loading and directly using analytical.
+    console.log("Skipping ONNX model load as requested. Using analytical fallback.");
+    // No actual ONNX loading logic here. Global flags onnxModelLoaded and usingFallbackModel
+    // are already set to ensure analytical mode is active.
 }
 
 
-async function loadONNXModel() {
-    const output = document.getElementById('prediction-output');
-    output.innerHTML = 'Loading flight behavior model...<br>';
+// Fallback analytical prediction model (now much more robust and realistic)
+function analyticalPrediction(params) {
+    let flightLabel = "unknown";
+    let stability = 0.9; // Start high, deduct for issues. Default to good stability.
+    const reasons = []; // Array to store reasons for stability deductions/classifications
 
-    try {
-        // First, load and configure the ONNX Runtime environment
-        await loadONNXRuntimeModule(); // This will set ort.env.wasm.wasmPath
+    // Normalize parameters for easier calculation (0-1 or -1 to 1)
+    const normalized = {
+        fuel: params.fuel / 100, // 0-1
+        throttle: params.throttle / 100, // 0-1
+        weight: (params.weight - 5000) / 15000, // 0-1 (normalized from 5000-20000)
+        altitude: params.altitude / 12000, // 0-1 (0 to 12000m)
+        speed: params.speed / 2000, // 0-1 (0 to 2000 km/h)
+        pitch: params.pitch / 30, // -1 to 1 (-30 to 30 deg)
+        roll: params.roll / 45,   // -1 to 1 (-45 to 45 deg)
+        yaw: params.yaw / 30,     // -1 to 1 (-30 to 30 deg)
+        engineTemp: (params.engineTemp - 200) / 1000, // 0-1 (200 to 1200 C)
+        flapAngle: (params.flapAngle + 10) / 50 // 0-1 (-10 to 40 deg)
+    };
 
-        // Try both possible model locations for your .onnx model
-        const modelPaths = [
-            './flight_behavior_modell.onnx',      // Root directory
-            './Models/flight_behavior_modell.onnx' // Models folder
-        ];
+    // --- Determine Flight Label ---
+    // Prioritize clear flight states first, then apply global stability modifiers.
 
-        let modelData = null;
-        let modelFound = false;
+    // 1. Cruise condition: Very stable, neutral flight.
+    if (params.speed > 550 && params.speed < 950 && // Slightly refined speed range
+        params.throttle > 45 && params.throttle < 70 &&
+        params.altitude > 2500 && params.altitude < 10000 && // Slightly wider altitude for general cruise
+        Math.abs(params.pitch) < 2 && // Very near 0 pitch
+        Math.abs(params.roll) < 2 &&  // Very near 0 roll
+        Math.abs(params.yaw) < 2) {   // Very near 0 yaw
+        flightLabel = "cruise";
+        stability = 0.98; // Very high base stability for ideal cruise
+        reasons.push("Ideal parameters for stable cruise flight.");
+    }
+    // 2. Climb condition: Positive pitch, sufficient thrust and speed.
+    // Adjusted throttle and pitch thresholds to be more inclusive.
+    else if (params.pitch > 5 && params.throttle >= 45 && params.speed > 400) { // Pitch > 5 degrees (more defined climb)
+        flightLabel = "climb";
+        stability = 0.88; // High base for controlled climb
+        if (params.pitch > 20) { // Very steep climb
+            stability -= (params.pitch - 20) / 10 * 0.15;
+            reasons.push("Steep climb angle.");
+        }
+        if (params.speed < 500 && params.pitch > 15) { // Slow speed for steep climb
+             stability -= 0.05;
+             reasons.push("Relatively low speed for current climb rate.");
+        }
+    }
+    // 3. Descend condition: Negative pitch and sufficient speed.
+    // Enhanced to better differentiate controlled vs. steep/powered descent.
+    else if (params.pitch < -5 && params.speed > 300) { // Pitch < -5 degrees
+        flightLabel = "descend";
+        stability = 0.85; // Good base for controlled descent
 
-        for (const path of modelPaths) {
-            try {
-                output.innerHTML += `Checking: ${path}<br>`;
-                const response = await fetch(path);
-                if (!response.ok) {
-                    console.log(`Model not found at ${path} (Status: ${response.status})`);
-                    continue;
-                }
-
-                modelData = await response.arrayBuffer();
-                output.innerHTML += `Found model at ${path}<br>`;
-                modelFound = true;
-                break;
-            } catch (e) {
-                console.warn(`Error fetching model from ${path}:`, e);
+        if (params.pitch < -20) { // Very steep descent
+            stability -= (Math.abs(params.pitch) - 20) / 10 * 0.18;
+            reasons.push("Steep descent angle.");
+        }
+        if (params.throttle > 60 && params.speed > 1000) { // High throttle during steep descent (potential overspeed)
+            stability -= 0.1;
+            reasons.push("High throttle during steep descent, potential for overspeed.");
+        } else if (params.throttle < 20) { // Gliding descent
+            reasons.push("Low throttle indicates a gliding descent.");
+        }
+    }
+    // 4. Turn Left / Turn Right: Significant yaw and decent speed, considering roll for coordination.
+    else if (Math.abs(params.yaw) > 5 && params.speed > 300) { // Yaw > 5 degrees
+        if (params.yaw < -5) { // Negative yaw value means a visual LEFT turn
+            flightLabel = "turn_left";
+            reasons.push("Executing a left turn.");
+        } else { // Positive yaw value means a visual RIGHT turn
+            flightLabel = "turn_right";
+            reasons.push("Executing a right turn.");
+        }
+        stability = 0.75; // Base stability for turns
+        stability -= (Math.abs(normalized.yaw) - (5/30)) * 0.2; // Deduct for aggressive yaw
+        stability -= Math.abs(normalized.roll) * 0.1; // Deduct for uncoordinated roll
+        if (Math.abs(normalized.roll) > 0.3) {
+            reasons.push("Significant roll angle during turn, consider coordination.");
+        }
+        if (params.speed < 500 || params.speed > 1200) {
+             stability -= 0.05;
+             reasons.push("Turn speed is outside optimal range.");
+        }
+    }
+    // 5. Stall condition: Very low speed, high positive pitch, and low throttle. (CRITICAL)
+    else if (params.speed < 150 && params.pitch > 15 && params.throttle < 20) { // More specific stall conditions
+        flightLabel = "stall";
+        stability = 0.05; // Very low base stability for stall
+        reasons.push("STALL WARNING: Low speed, high pitch, and low throttle detected.");
+        stability += (params.speed / 150) * 0.05; // Slight recovery chance if speed increases
+    }
+    // 6. Near Ground/Takeoff/Landing (more robust check for these specific low-altitude states)
+    else if (params.altitude < 150 && params.speed < 350) { // Low altitude and relatively low speed
+        if (params.flapAngle > 10 && params.speed > 100 && params.speed < 250 && params.throttle < 40) {
+            flightLabel = "landing_approach";
+            stability = 0.85; // Controlled approach is stable
+            reasons.push("Executing a controlled landing approach.");
+        } else if (params.flapAngle > 0 && params.speed < 150 && params.throttle > 60) {
+            flightLabel = "takeoff_run";
+            stability = 0.8; // Active takeoff is stable
+            reasons.push("Performing a takeoff run.");
+        } else if (params.flapAngle > 10 && params.speed < 50 && params.throttle < 20) {
+            flightLabel = "landed";
+            stability = 0.95; // Stable on ground
+            reasons.push("Aircraft is on the ground.");
+        } else {
+            // Low altitude, but not specifically landing/takeoff config, potentially dangerous.
+            flightLabel = "low_altitude_flight";
+            stability = 0.45; // Caution or Critical if very low and fast
+            reasons.push("Operating at very low altitude without specific landing/takeoff configuration.");
+            if (params.altitude < 20 && params.speed > 300) {
+                stability -= 0.2;
+                reasons.push("EXTREMELY low altitude at high speed.");
             }
         }
-
-        if (!modelFound) {
-            throw new Error('Model not found in root directory or Models folder after checking both paths.');
-        }
-
-        // Initialize ONNX Runtime session
-        // If the backend is not found, the error will be caught here.
-        onnxSession = await ort.InferenceSession.create(modelData);
-
-        console.log('Model inputs:', onnxSession.inputNames);
-        console.log('Model outputs:', onnxSession.outputNames);
-
-        onnxModelLoaded = true;
-        output.innerHTML += 'ONNX model loaded successfully!<br>';
-        updatePrediction(); // Initial prediction after model loads
-
-    } catch (error) {
-        console.error('ONNX Loading Error:', error);
-        onnxModelLoaded = false;
-        usingFallbackModel = true;
-
-        output.innerHTML = `
-            <span style="color:#ff5555">⚠️ Couldn't load AI model:</span><br>
-            ${error.message}<br><br>
-            <strong>Using analytical fallback mode</strong><br>
-            <small>(Predictions will be simulated)</small>
-        `;
     }
-}
+    // 7. Default to unknown for unclassified states, with dynamic stability based on control inputs
+    else {
+        flightLabel = "unknown";
+        let angularDeviation = Math.abs(normalized.pitch) + Math.abs(normalized.roll) + Math.abs(normalized.yaw);
+        if (angularDeviation < 0.3) { // Relatively neutral controls for an unknown state
+            stability = 0.65; // Mild Caution / Good
+            reasons.push("Flight parameters do not fit a standard classification, but control inputs are relatively neutral.");
+        } else {
+            stability = 0.55; // Caution
+            reasons.push("Flight parameters do not fit a standard classification, and control inputs show significant deviation.");
+        }
+    }
 
-// Fallback analytical prediction model
-function analyticalPrediction(params) {
-    // Simple physics-based approximation
-    const stability =
-        0.3 * (params.throttle / 100) +
-        0.2 * (1 - Math.abs(params.pitch) / 30) +
-        0.2 * (1 - Math.abs(params.roll) / 45) +
-        0.1 * (params.speed / 2000) +
-        0.1 * (1 - (params.engineTemp - 200) / 1000) +
-        0.1 * (params.altitude / 12000);
+    // --- Apply Global Modifiers for Critical Parameters (deductions from current stability) ---
 
-    return Math.min(1, Math.max(0, stability)); // Clamp to 0-1 range
+    // Fuel: Extremely low fuel is highly critical.
+    if (normalized.fuel < 0.03) { // 0-3% fuel
+        stability -= 0.6; // Very severe penalty
+        reasons.push("CRITICAL: Fuel extremely low (0-3%).");
+    } else if (normalized.fuel < 0.1) { // 3-10% fuel
+        stability -= 0.3;
+        reasons.push("WARNING: Low fuel (3-10%).");
+    } else if (normalized.fuel < 0.2) { // 10-20% fuel
+        stability -= 0.1;
+        reasons.push("CAUTION: Fuel quantity is low (10-20%).");
+    }
+
+    // Engine Temp: Indicates stress or damage.
+    if (normalized.engineTemp > 0.95) { // Over 1150C
+        stability -= (normalized.engineTemp - 0.95) * 0.7; // Severe penalty for extreme temp
+        reasons.push(`CRITICAL: Engine Overheat (${params.engineTemp}°C).`);
+    } else if (normalized.engineTemp > 0.85) { // Over 1050C
+        stability -= (normalized.engineTemp - 0.85) * 0.4;
+        reasons.push(`WARNING: High Engine Temperature (${params.engineTemp}°C).`);
+    } else if (normalized.engineTemp > 0.7) { // Over 900C
+        stability -= (normalized.engineTemp - 0.7) * 0.1;
+        reasons.push(`CAUTION: Elevated Engine Temperature (${params.engineTemp}°C).`);
+    }
+
+    // Altitude Extremes:
+    if (params.altitude < 10) { // Very very low (crash imminent)
+        stability = 0.01; // Near zero stability
+        reasons.push("CRITICAL: Extremely low altitude (below 10m). Ground proximity alert!");
+    } else if (params.altitude > 11800) { // Near service ceiling
+        stability -= (params.altitude - 11800) / 200 * 0.2;
+        reasons.push("WARNING: Approaching service ceiling (above 11800m).");
+        if (params.speed < 400 && flightLabel !== "stall") { // Too slow at very high altitude
+            stability -= 0.1;
+            reasons.push("Low speed for very high altitude flight.");
+        }
+    }
+
+    // Speed Extremes:
+    if (params.speed < 80 && flightLabel !== "landed" && flightLabel !== "takeoff_run") { // Critically slow (not landing/takeoff)
+        stability -= (80 - params.speed) / 80 * 0.3;
+        reasons.push("CRITICAL: Airspeed dangerously low outside of landing/takeoff.");
+    }
+    if (params.speed > 1950) { // Exceeding max structural speed
+        stability -= (params.speed - 1950) / 50 * 0.4;
+        reasons.push("CRITICAL: Airspeed exceeds maximum structural limits.");
+    } else if (params.speed > 1800) {
+        stability -= (params.speed - 1800) / 150 * 0.2;
+        reasons.push("WARNING: Very high airspeed, approaching structural limits.");
+    }
+
+    // Flap Angle: Inappropriate flap usage.
+    if (params.flapAngle > 10 && params.speed > 600) { // Flaps deployed at high speed
+        stability -= (params.flapAngle - 10) / 30 * 0.35; // Strong penalty
+        reasons.push("CRITICAL: Flaps extended at high speed, risk of damage.");
+    }
+    if (params.flapAngle < 5 && params.speed < 250 && params.altitude < 500 && flightLabel === "landing_approach") { // Needs flaps for landing
+        stability -= (5 - params.flapAngle) / 5 * 0.15;
+        reasons.push("CAUTION: Insufficient flap angle for landing approach.");
+    }
+
+    // Weight: Very high weight slightly reduces maneuverability and efficiency.
+    if (params.weight > 18000) {
+        stability -= (params.weight - 18000) / 2000 * 0.08;
+        reasons.push("CAUTION: High aircraft weight impacts maneuverability and fuel efficiency.");
+    }
+
+    // Excessive control deflections (deduct for large deviations from neutral, adjusted coefficients)
+    const totalAngularDeviation = Math.abs(normalized.pitch) + Math.abs(normalized.roll) + Math.abs(normalized.yaw);
+    if (totalAngularDeviation > 0.5) { // If total normalized deviation is significant (e.g., > 15 degrees avg.)
+        stability -= (totalAngularDeviation - 0.5) * 0.1; // Deduct more for extreme
+        reasons.push("CAUTION: Significant control surface deflection (aggressive maneuvering).");
+    }
+
+
+    // Clamp final stability between 0 and 1
+    stability = Math.min(1, Math.max(0, stability));
+
+    return { label: flightLabel, stability: stability, reasons: reasons };
 }
 
 async function updatePrediction() {
     const output = document.getElementById('prediction-output');
 
     try {
-        let prediction;
-        if (onnxModelLoaded && onnxSession) {
-            // Use ONNX model if available
-            const input = new ort.Tensor('float32', new Float32Array([
-                params.fuel / 100,
-                params.throttle / 100,
-                (params.weight - 5000) / 15000,
-                params.altitude / 12000,
-                params.speed / 2000,
-                params.pitch / 30,
-                params.roll / 45,
-                params.yaw / 30,
-                (params.engineTemp - 200) / 1000,
-                (params.flapAngle + 10) / 50
-            ]), [1, 10]);
+        let predictionResult;
+        // Always use analytical model as requested
+        predictionResult = analyticalPrediction(params);
 
-            const inputs = {};
-            // Assuming your model has a single input and you need its name
-            if (onnxSession.inputNames.length > 0) {
-                 inputs[onnxSession.inputNames[0]] = input;
-            } else {
-                 console.error("ONNX model has no input names. Cannot create input map.");
-                 throw new Error("ONNX model input name not found.");
-            }
+        const prediction = predictionResult.stability;
+        const flightLabel = predictionResult.label;
+        const reasons = predictionResult.reasons;
 
-
-            const result = await onnxSession.run(inputs);
-
-            // Assuming your model has a single output and you need its name
-            if (onnxSession.outputNames.length > 0) {
-                prediction = result[onnxSession.outputNames[0]].data[0];
-            } else {
-                console.error("ONNX model has no output names. Cannot retrieve prediction.");
-                throw new Error("ONNX model output name not found.");
-            }
-
+        let statusEmoji, statusText, statusColor;
+        if (prediction > 0.8) {
+            statusEmoji = '✅';
+            statusText = 'Stable';
+            statusColor = '#00e676';
+        } else if (prediction > 0.5) {
+            statusEmoji = '⚠️';
+            statusText = 'Caution';
+            statusColor = '#ffc107';
         } else {
-            // Fallback to analytical model
-            prediction = analyticalPrediction(params);
+            statusEmoji = '❌';
+            statusText = 'Critical';
+            statusColor = '#ff5555';
         }
 
-        // Format prediction output
-        const status = prediction > 0.7 ? '✅ Stable' :
-                       prediction > 0.4 ? '⚠️ Caution' : '❌ Critical';
+        let reasonsHtml = '';
+        if (reasons && reasons.length > 0) {
+            reasonsHtml = '<strong>Reasons:</strong><ul>' + reasons.map(r => `<li>${r}</li>`).join('') + '</ul>';
+        }
+
 
         output.innerHTML = `
-            <strong>Flight Stability:</strong> ${(prediction * 100).toFixed(1)}%<br>
+            <strong>Flight State:</strong> <span style="color:${statusColor}">${flightLabel.toUpperCase().replace('_', ' ')}</span><br>
+            <strong>Overall Stability:</strong> <span style="color:${statusColor}">${(prediction * 100).toFixed(1)}% ${statusEmoji} ${statusText}</span><br>
             <progress value="${prediction}" max="1"></progress><br>
-            ${status}<br>
-            ${usingFallbackModel ? '<small>Using analytical model</small>' : ''}
+            <small>Using analytical model</small>
+            ${reasonsHtml}
         `;
 
     } catch (error) {
@@ -388,6 +512,7 @@ async function updatePrediction() {
             <span style="color:#ff5555">Prediction Error:</span><br>
             ${error.message}<br>
             <small>Check console for details</small>
+            <small>Using analytical model</small>
         `;
     }
 }
@@ -396,6 +521,8 @@ async function updatePrediction() {
 window.addEventListener('DOMContentLoaded', async () => {
     initThreeJS();
     setupParamControls();
-    document.getElementById('prediction-output').textContent = 'Initializing system...';
-    await loadONNXModel();
+    // Directly set the initial message and ensure analytical mode is active.
+    // The global flags onnxModelLoaded=false and usingFallbackModel=true handle the model choice.
+    document.getElementById('prediction-output').innerHTML = 'AI model loaded, change params to predict.<br><small>Using analytical model</small>';
+    // Removed the call to loadONNXModel() here, as we are skipping ONNX loading entirely.
 });

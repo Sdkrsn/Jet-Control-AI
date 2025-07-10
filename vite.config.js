@@ -19,12 +19,19 @@ export default defineConfig({
     }
   },
   server: {
-    // If you have a separate Python backend for other things (e.g., APIs),
-    // you might need to configure a proxy here.
-    // For now, if your Python server is ONLY for serving the .pkl/.onnx,
-    // and Vite is serving the frontend, you likely won't need anything specific here
-    // unless you want Vite to run on a different port or allow specific network access.
-    // host: '0.0.0.0', // To allow access from other devices on your network
-    // port: 3000, // Or any other port you prefer for the dev server
+    // *** ADDED: Explicit MIME type for .wasm files ***
+    // This tells Vite's development server to serve .wasm files with the correct Content-Type header.
+    mimeTypes: {
+      '.wasm': 'application/wasm'
+    },
+    // *** ADDED: Cross-Origin Isolation Headers ***
+    // These headers are often required for WebAssembly multi-threading (which ONNX Runtime Web uses)
+    // and certain other advanced browser features related to security contexts.
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
+    // host: '0.0.0.0', // Optional: To allow access from other devices on your network
+    // port: 3000, // Optional: Or any other port you prefer for the dev server
   }
 });
