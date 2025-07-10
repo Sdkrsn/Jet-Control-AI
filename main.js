@@ -1,3 +1,9 @@
+// main.js
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import * as ort from 'onnxruntime-web'; // This is the standard way to import with a bundler
+
 // JetControl AI - Complete Solution with Robust ONNX Handling
 let scene, camera, renderer, aircraft;
 let canvas = document.getElementById('aircraft-canvas');
@@ -5,6 +11,9 @@ let isDragging = false;
 let previousMousePosition = { x: 0, y: 0 };
 let cameraDistance = 15;
 let cameraAngle = { x: 0, y: 0 };
+
+// ONNX Runtime instance (will be assigned the module)
+// ort is already imported above globally.
 
 function initThreeJS() {
     // Scene
@@ -75,14 +84,14 @@ function onMouseUp() {
 
 function onMouseMove(event) {
     if (!isDragging) return;
-    
+
     const deltaX = event.clientX - previousMousePosition.x;
     const deltaY = event.clientY - previousMousePosition.y;
-    
+
     cameraAngle.x += deltaX * 0.01;
     cameraAngle.y -= deltaY * 0.01;
-    cameraAngle.y = Math.max(-Math.PI/2, Math.min(Math.PI/2, cameraAngle.y));
-    
+    cameraAngle.y = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraAngle.y));
+
     updateCameraPosition();
     previousMousePosition = {
         x: event.clientX,
@@ -97,8 +106,8 @@ function onMouseWheel(event) {
 }
 
 function loadAircraftModel() {
-    const loader = new THREE.GLTFLoader();
-    const dracoLoader = new THREE.DRACOLoader();
+    const loader = new GLTFLoader(); // Use imported GLTFLoader
+    const dracoLoader = new DRACOLoader(); // Use imported DRACOLoader
     dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
     loader.setDRACOLoader(dracoLoader);
 
@@ -107,18 +116,18 @@ function loadAircraftModel() {
         function(gltf) {
             console.log('Model loaded successfully');
             aircraft = gltf.scene;
-            
+
             // Larger aircraft model
             aircraft.scale.set(1.5, 1.5, 1.5);
             aircraft.position.y = 0;
-            
+
             // Center the model
             const box = new THREE.Box3().setFromObject(aircraft);
             const center = box.getCenter(new THREE.Vector3());
             aircraft.position.sub(center);
-            
+
             scene.add(aircraft);
-            
+
             // Start animation
             animate();
         },
@@ -135,7 +144,7 @@ function loadAircraftModel() {
 function loadFallbackModel() {
     console.log('Loading fallback model');
     const geometry = new THREE.BoxGeometry(2, 1, 5);
-    const material = new THREE.MeshPhongMaterial({ 
+    const material = new THREE.MeshPhongMaterial({
         color: 0x00ff00,
         specular: 0x111111,
         shininess: 30
@@ -147,17 +156,17 @@ function loadFallbackModel() {
 
 function animate() {
     requestAnimationFrame(animate);
-    
+
     if (aircraft) {
         // Corrected control mapping
         aircraft.rotation.x = THREE.MathUtils.degToRad(-(params.pitch || 0)); // Pitch (nose up/down)
-        aircraft.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);     // Roll (banking)
-        aircraft.rotation.y = THREE.MathUtils.degToRad(-(params.yaw || 0));   // Yaw (turning)
-        
+        aircraft.rotation.z = THREE.MathUtils.degToRad(params.roll || 0);      // Roll (banking)
+        aircraft.rotation.y = THREE.MathUtils.degToRad(-(params.yaw || 0));    // Yaw (turning)
+
         // Gentle floating animation
         aircraft.position.y = Math.sin(Date.now() * 0.001) * 0.5;
     }
-    
+
     renderer.render(scene, camera);
 }
 
@@ -205,12 +214,49 @@ let onnxSession = null;
 let onnxModelLoaded = false;
 let usingFallbackModel = false;
 
+async function loadONNXRuntimeModule() {
+    console.log('Attempting to load ONNX Runtime module...');
+    try {
+        // With a bundler, the 'import * as ort from "onnxruntime-web";' handles finding the module.
+        // You don't usually need to set wasmPath explicitly IF the bundler is configured correctly
+        // to copy assets and resolve paths. However, for direct browser use (which Vite effectively enables),
+        // it's still good practice to set wasmPath relative to your *served* files.
+        // Vite copies WASM files to the root build directory by default, so we set wasmPath to '/'.
+        // If you had them in a subfolder like /assets/wasm/, you'd set it to '/assets/wasm/'.
+
+        // For development with Vite, the base path is usually the root of your development server.
+        ort.env.wasm.wasmPath = '/'; // Assuming Vite puts WASM files at the root of its dev server.
+
+        console.log(`ONNX Runtime Wasm path set to: ${ort.env.wasm.wasmPath}`);
+
+        // Handle multi-threading gracefully if cross-origin isolation is not met
+        if (ort.env.wasm.numThreads > 1 && !self.crossOriginIsolated) {
+             console.warn("Cross-Origin Isolation is required for WebAssembly multi-threading. See https://web.dev/cross-origin-isolation-guide/ for more info. Falling back to single thread.");
+             ort.env.wasm.numThreads = 1; // Explicitly set to 1
+        } else if (!self.crossOriginIsolated) {
+            console.info("Cross-Origin Isolation is not enabled, multi-threading for WebAssembly will not work. `numThreads` is already 1 or less.");
+        }
+
+        // No need to return ort from this function as it's already imported globally.
+        // This function primarily sets up environment variables.
+        console.log('ONNX Runtime module configuration complete.');
+
+    } catch (e) {
+        console.error('Error configuring ONNX Runtime module:', e);
+        throw new Error('Failed to configure ONNX Runtime module. Check console for details.');
+    }
+}
+
+
 async function loadONNXModel() {
     const output = document.getElementById('prediction-output');
     output.innerHTML = 'Loading flight behavior model...<br>';
 
     try {
-        // Try both possible model locations
+        // First, load and configure the ONNX Runtime environment
+        await loadONNXRuntimeModule(); // This will set ort.env.wasm.wasmPath
+
+        // Try both possible model locations for your .onnx model
         const modelPaths = [
             './flight_behavior_modell.onnx',      // Root directory
             './Models/flight_behavior_modell.onnx' // Models folder
@@ -223,44 +269,40 @@ async function loadONNXModel() {
             try {
                 output.innerHTML += `Checking: ${path}<br>`;
                 const response = await fetch(path);
-                if (!response.ok) continue;
-                
+                if (!response.ok) {
+                    console.log(`Model not found at ${path} (Status: ${response.status})`);
+                    continue;
+                }
+
                 modelData = await response.arrayBuffer();
                 output.innerHTML += `Found model at ${path}<br>`;
                 modelFound = true;
                 break;
             } catch (e) {
-                console.log(`Not found at ${path}`, e);
+                console.warn(`Error fetching model from ${path}:`, e);
             }
         }
 
         if (!modelFound) {
-            throw new Error('Model not found in root directory or Models folder');
+            throw new Error('Model not found in root directory or Models folder after checking both paths.');
         }
 
-        // Validate ONNX model header
-        if (!isValidONNXModel(modelData)) {
-            throw new Error('Invalid ONNX file format (corrupted or wrong version)');
-        }
+        // Initialize ONNX Runtime session
+        // If the backend is not found, the error will be caught here.
+        onnxSession = await ort.InferenceSession.create(modelData);
 
-        // Initialize ONNX session with WebGL backend
-        onnxSession = new onnx.InferenceSession({ backendHint: 'webgl' });
-        await onnxSession.loadModel(modelData);
-
-        // Verify model structure
-        if (!onnxSession.inputNames.includes('float_input')) {
-            throw new Error('Model input mismatch - expected "float_input"');
-        }
+        console.log('Model inputs:', onnxSession.inputNames);
+        console.log('Model outputs:', onnxSession.outputNames);
 
         onnxModelLoaded = true;
         output.innerHTML += 'ONNX model loaded successfully!<br>';
-        console.log('Model input dimensions:', onnxSession.inputDimensions);
+        updatePrediction(); // Initial prediction after model loads
 
     } catch (error) {
         console.error('ONNX Loading Error:', error);
         onnxModelLoaded = false;
         usingFallbackModel = true;
-        
+
         output.innerHTML = `
             <span style="color:#ff5555">⚠️ Couldn't load AI model:</span><br>
             ${error.message}<br><br>
@@ -270,36 +312,28 @@ async function loadONNXModel() {
     }
 }
 
-function isValidONNXModel(data) {
-    // Check for ONNX file magic number
-    if (!data || data.byteLength < 8) return false;
-    const header = new Uint8Array(data, 0, 8);
-    return header[0] === 0x4F && header[1] === 0x4E && 
-           header[2] === 0x4E && header[3] === 0x58; // "ONNX"
-}
-
 // Fallback analytical prediction model
 function analyticalPrediction(params) {
     // Simple physics-based approximation
-    const stability = 
+    const stability =
         0.3 * (params.throttle / 100) +
         0.2 * (1 - Math.abs(params.pitch) / 30) +
         0.2 * (1 - Math.abs(params.roll) / 45) +
         0.1 * (params.speed / 2000) +
         0.1 * (1 - (params.engineTemp - 200) / 1000) +
         0.1 * (params.altitude / 12000);
-    
+
     return Math.min(1, Math.max(0, stability)); // Clamp to 0-1 range
 }
 
 async function updatePrediction() {
     const output = document.getElementById('prediction-output');
-    
+
     try {
         let prediction;
-        if (onnxModelLoaded) {
+        if (onnxModelLoaded && onnxSession) {
             // Use ONNX model if available
-            const input = new Float32Array([
+            const input = new ort.Tensor('float32', new Float32Array([
                 params.fuel / 100,
                 params.throttle / 100,
                 (params.weight - 5000) / 15000,
@@ -310,20 +344,37 @@ async function updatePrediction() {
                 params.yaw / 30,
                 (params.engineTemp - 200) / 1000,
                 (params.flapAngle + 10) / 50
-            ]);
-            
-            const tensor = new onnx.Tensor(input, 'float32', [1, 10]);
-            const result = await onnxSession.run({ float_input: tensor });
-            prediction = result[onnxSession.outputNames[0]].data[0];
+            ]), [1, 10]);
+
+            const inputs = {};
+            // Assuming your model has a single input and you need its name
+            if (onnxSession.inputNames.length > 0) {
+                 inputs[onnxSession.inputNames[0]] = input;
+            } else {
+                 console.error("ONNX model has no input names. Cannot create input map.");
+                 throw new Error("ONNX model input name not found.");
+            }
+
+
+            const result = await onnxSession.run(inputs);
+
+            // Assuming your model has a single output and you need its name
+            if (onnxSession.outputNames.length > 0) {
+                prediction = result[onnxSession.outputNames[0]].data[0];
+            } else {
+                console.error("ONNX model has no output names. Cannot retrieve prediction.");
+                throw new Error("ONNX model output name not found.");
+            }
+
         } else {
             // Fallback to analytical model
             prediction = analyticalPrediction(params);
         }
 
         // Format prediction output
-        const status = prediction > 0.7 ? '✅ Stable' : 
-                      prediction > 0.4 ? '⚠️ Caution' : '❌ Critical';
-        
+        const status = prediction > 0.7 ? '✅ Stable' :
+                       prediction > 0.4 ? '⚠️ Caution' : '❌ Critical';
+
         output.innerHTML = `
             <strong>Flight Stability:</strong> ${(prediction * 100).toFixed(1)}%<br>
             <progress value="${prediction}" max="1"></progress><br>
@@ -342,9 +393,9 @@ async function updatePrediction() {
 }
 
 // INIT
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
     initThreeJS();
     setupParamControls();
     document.getElementById('prediction-output').textContent = 'Initializing system...';
-    loadONNXModel();
+    await loadONNXModel();
 });

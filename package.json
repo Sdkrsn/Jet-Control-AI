@@ -1,0 +1,30 @@
+{
+  "name": "jetcontrolai-simulator",
+  "version": "1.0.0",
+  "description": "JetControl AI Simulator with ONNX Runtime Web and Three.js",
+  "main": "main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "AI",
+    "ONNX",
+    "Three.js",
+    "aircraft",
+    "simulator",
+    "web",
+    "vite"
+  ],
+  "author": "Your Name (or leave blank)",
+  "license": "ISC",
+  "dependencies": {
+    "onnxruntime-web": "^1.22.0",
+    "three": "^0.178.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.178.0",
+    "vite": "^5.3.3"  
+  }
+}
